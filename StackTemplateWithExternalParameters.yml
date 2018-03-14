@@ -1,0 +1,116 @@
+heat_template_version: 2014-10-16  
+description: A simple auto scaling template with external parameters and scaling on CPU_UTIL and will scale up on cpu 5 % up or down..  
+parameters:
+  image:
+    type: string
+    description: Name of image used to create nova instance
+    default: YourImage
+  key_name:
+    type: string
+    description: name of SSH keypair to connect to the server
+    default: YourKey
+  flavor:
+    type: string
+    description: flavor used by the servers
+    default: m1.xlarge
+  private_network:
+    type: string
+    description: Name or ID of the network to which the server will be attached
+    default: YourNetwork
+  private_subnet_id:
+    type: string
+    default: YourSubnet 
+  protocol_port:
+    type: number
+    description: port number where server listens
+    default: 80
+  az:
+    type: string
+    description: availability zone for instances
+    default: YourAvailabilityZone   
+resources:  
+  group:
+    type: OS::Heat::AutoScalingGroup
+    properties:
+      cooldown: 60
+      desired_capacity: 2
+      max_size: 2
+      min_size: 1
+      resource:
+        type: OS::Nova::Server
+        properties:
+          key_name: { get_param: "key_name" }
+          image: { get_param: "image" } 
+          flavor: { get_param: "flavor" } 
+          networks:
+            - network: { get_param: "private_network" }
+  
+  scaleup_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: { get_resource: group }
+      cooldown: 60
+      scaling_adjustment: 1
+  scaledown_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: { get_resource: group }
+      cooldown: 60
+      scaling_adjustment: -1
+
+  cpu_alarm_high:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      period: 600
+      evaluation_periods: 1
+      threshold: 5
+      alarm_actions:
+        - {get_attr: [scaleup_policy, alarm_url]}
+      comparison_operator: gt
+  cpu_alarm_low:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      period: 600
+      evaluation_periods: 1
+      threshold: 5
+      alarm_actions:
+        - {get_attr: [scaledown_policy, alarm_url]}
+      comparison_operator: le
+  monitor:
+    type: OS::Neutron::HealthMonitor
+    properties:
+      type: TCP
+      delay: 3
+      max_retries: 5
+      timeout: 3
+
+  pool:
+    type: OS::Neutron::Pool
+    properties:
+      protocol: HTTP
+      monitors: [{get_resource: monitor}]
+      subnet_id: { get_param: private_subnet_id }
+      lb_method: ROUND_ROBIN
+      vip:
+        protocol_port: 80
+
+  lb:
+    type: OS::Neutron::LoadBalancer
+    properties:
+      protocol_port: 80
+      pool_id: {get_resource: pool}
+
+outputs:
+  ScaleUpURL:
+    description: url to scale up
+    value: { get_attr : [scaleup_policy, alarm_url] }
+  ScaleDownURL:
+    description: url to scale down
+    value: { get_attr : [scaledown_policy, alarm_url] }
+          

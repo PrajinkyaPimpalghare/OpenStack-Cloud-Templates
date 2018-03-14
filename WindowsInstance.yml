@@ -1,0 +1,12 @@
+heat_template_version: 2015-10-15
+
+description: Simple template to deploy a single compute instance
+
+resources:
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      key_name: YourKey
+      image: YourImageName 
+      flavor: YourChoiseOfFlaour(E.g: m1.xlarge)
+      network: YourNetwork
